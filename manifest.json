@@ -1,0 +1,38 @@
+{
+  "name": "ICT Trading Bot",
+  "short_name": "ICT Bot",
+  "description": "ICT Day Trading Signal Bot — USDJPY & Forex",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#07090f",
+  "theme_color": "#07090f",
+  "orientation": "portrait",
+  "scope": "./",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["finance", "utilities"],
+  "shortcuts": [
+    {
+      "name": "USDJPY Signal",
+      "short_name": "USDJPY",
+      "url": "./index.html?pair=USD/JPY"
+    },
+    {
+      "name": "EURUSD Signal",
+      "short_name": "EURUSD",
+      "url": "./index.html?pair=EUR/USD"
+    }
+  ]
+}
