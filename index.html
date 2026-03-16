@@ -549,8 +549,6 @@ window.addEventListener('appinstalled', () => {
 //  CONFIG
 // ═══════════════════════════════════════════════════════════
 const CANDLE_TF  = '1h';   // H1 — day trading timeframe
-const HTF        = '4h';   // H4 — higher timeframe bias
-const CANDLES_NEEDED = 60; // how many candles to fetch for analysis
 
 const PAIRS_MAP = {
   'USD/JPY': { digits: 3, pip: 0.01  },
@@ -817,57 +815,40 @@ function analyzeCandles(candles, htfCandles, livePrice) {
 }
 
 // ═══════════════════════════════════════════════════════════
-//  MAIN UPDATE LOOP
+//  MAIN UPDATE LOOP — 1 API call per analysis (rate limit safe)
 // ═══════════════════════════════════════════════════════════
 async function runAnalysis() {
   if(isLoading || !API_KEY) return;
 
-  // Show closed banner but still fetch data for testing
   updateMarketBanner();
-
   isLoading = true;
   showLoadingState();
 
   try {
-    // Twelve Data uses format like "USD/JPY" — keep as-is
     const sym = currentPair;
 
-    // Fetch H1 candles + H4 candles + live price
-    // Note: on weekends Twelve Data still returns the last available price/candles
-    let h1Candles, h4Candles, livePrice;
-
-    try {
-      h1Candles = await fetchCandles(sym, CANDLE_TF, CANDLES_NEEDED);
-    } catch(e) {
-      throw new Error('H1 candles failed: ' + e.message);
-    }
-
-    try {
-      h4Candles = await fetchCandles(sym, HTF, 30);
-    } catch(e) {
-      h4Candles = null; // H4 optional — continue without it
-    }
-
-    try {
-      livePrice = await fetchPrice(sym);
-    } catch(e) {
-      // Fall back to last H1 close price
-      livePrice = parseFloat(h1Candles[h1Candles.length - 1].close);
-    }
+    // ONE call only — fetch 120 H1 candles
+    // We derive H4 bias internally by grouping H1 candles into H4 blocks
+    // Live price = last candle close (accurate enough for day trading levels)
+    const h1Candles = await fetchCandles(sym, CANDLE_TF, 120);
 
     if(!h1Candles || h1Candles.length < 20) {
-      throw new Error('Not enough candle data returned. Check your API key is valid.');
+      throw new Error('Not enough candle data. Check your API key is valid.');
     }
+
+    // Derive H4 candles from H1 data (group every 4 H1 candles into 1 H4)
+    const h4Candles = buildH4FromH1(h1Candles);
+
+    // Live price = most recent H1 close
+    const livePrice = parseFloat(h1Candles[h1Candles.length - 1].close);
 
     const result = analyzeCandles(h1Candles, h4Candles, livePrice);
     renderSignal(result, livePrice);
     updateLiveDot(true);
 
-    // Remove any error
     const errEl = document.querySelector('.error-msg');
     if(errEl) errEl.remove();
 
-    // Log new signal
     if((result.dir === 'BUY' || result.dir === 'SELL') && result.dir !== lastSignalDir) {
       lastSignalDir  = result.dir;
       lastSignalTime = Date.now();
@@ -877,13 +858,12 @@ async function runAnalysis() {
 
   } catch(err) {
     let msg = err.message || 'Unknown error';
-    // Make error messages human-readable
     if(msg.includes('401') || msg.includes('apikey') || msg.toLowerCase().includes('invalid api'))
       msg = 'Invalid API key — go to twelvedata.com and check your key.';
     else if(msg.includes('429') || msg.toLowerCase().includes('limit'))
-      msg = 'API rate limit hit — free plan allows 8 requests/min. Wait a moment.';
+      msg = 'Rate limit hit. The bot will auto-retry in 1 minute.';
     else if(msg.includes('Failed to fetch') || msg.includes('NetworkError'))
-      msg = 'No internet connection. Check your WiFi or mobile data.';
+      msg = 'Could not reach server. Check your internet connection.';
     else if(msg.includes('not found') || msg.includes('symbol'))
       msg = 'Symbol not found. Try a different pair.';
     showError(msg);
@@ -891,6 +871,22 @@ async function runAnalysis() {
   }
 
   isLoading = false;
+}
+
+// Build H4 candles by grouping H1 candles (4 per H4 bar)
+function buildH4FromH1(h1) {
+  const h4 = [];
+  for(let i = 0; i + 3 < h1.length; i += 4) {
+    const group = h1.slice(i, i + 4);
+    h4.push({
+      open:  group[0].open,
+      high:  Math.max(...group.map(c => parseFloat(c.high))).toString(),
+      low:   Math.min(...group.map(c => parseFloat(c.low))).toString(),
+      close: group[3].close,
+      datetime: group[0].datetime
+    });
+  }
+  return h4;
 }
 
 // ═══════════════════════════════════════════════════════════
